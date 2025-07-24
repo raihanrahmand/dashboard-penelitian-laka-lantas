@@ -18,6 +18,7 @@ import requests
 import gdown
 from functools import lru_cache
 import time
+import tempfile
 
 app = Flask(
     __name__,
@@ -41,18 +42,50 @@ def data_page():
 def classification_page():
     return render_template('analisis.html')
 
+# @app.route('/download-classification-table')
+# def download_classification_table():
+#     if os.path.exists('data/dataset_klasifikasi_lengkap_terbaru.csv'):
+#         file_path = os.path.join('data', 'dataset_klasifikasi_lengkap_terbaru.csv')
+#     else:
+#         file_path = os.path.join('data', 'dataset_klasifikasi_lengkap.csv')
+
+#     if not os.path.exists(file_path):
+#         # Kembalikan status 404 supaya fetch .ok jadi false
+#         return "File tidak ada", 404
+    
+#     return send_file(file_path, as_attachment=True)
+
+
 @app.route('/download-classification-table')
 def download_classification_table():
-    if os.path.exists('data/dataset_klasifikasi_lengkap_terbaru.csv'):
-        file_path = os.path.join('data', 'dataset_klasifikasi_lengkap_terbaru.csv')
-    else:
-        file_path = os.path.join('data', 'dataset_klasifikasi_lengkap.csv')
-
-    if not os.path.exists(file_path):
-        # Kembalikan status 404 supaya fetch .ok jadi false
-        return "File tidak ada", 404
+    file_id = '1yZZttxDJmR_sa23yfZLTj1fP6jdOUS9e'  # contoh: '1abcD23EFgHIjklMNopQ456RStUvWXYZ'
+    URL = 'https://docs.google.com/uc?export=download'
     
-    return send_file(file_path, as_attachment=True)
+    session = requests.Session()
+    response = session.get(URL, params={'id': file_id}, stream=True)
+
+    # Cek apakah perlu konfirmasi (untuk file besar)
+    token = None
+    for key, value in response.cookies.items():
+        if key.startswith('download_warning'):
+            token = value
+
+    if token:
+        response = session.get(URL, params={'id': file_id, 'confirm': token}, stream=True)
+
+    if response.status_code != 200:
+        return "Gagal mengunduh file", 502
+
+    # Simpan file sementara
+    tmp = tempfile.NamedTemporaryFile(delete=False)
+    with open(tmp.name, 'wb') as f:
+        for chunk in response.iter_content(32768):
+            if chunk:
+                f.write(chunk)
+
+    # Kirim file ke client
+    return send_file(tmp.name, as_attachment=True, download_name='dataset_klasifikasi.csv')
+
 
 @lru_cache(maxsize=32)
 def load_csv_from_drive(file_id, version=None):
