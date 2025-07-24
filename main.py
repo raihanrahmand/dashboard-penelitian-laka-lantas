@@ -1,17 +1,6 @@
-from app.utils.scraper import detikcom_scraping  
-from app.utils.pre_processing import load_and_clean_data
-from app.utils.klasifikasi_berita_relevan import predict_sentiment_from_file
-from app.utils.pemeriksaan_kesamaan_teks import update_relevant_news_and_filter
-from app.utils.prediksi_ner import prediksi_ner, extract_all_entities, process_dates, normalize_location
-from app.utils.pembentukan_tabel_visualisasi import entitas_day, entitas_time, entitas_age, entitas_cause, entitas_death, entitas_injury, entitas_loc, entitas_merk, entitas_road, entitas_vehicle
-from app.utils.pembentukan_dataset_klasifikasi import grouping_day, grouping_cause, grouping_vehicle, grouping_death, grouping_time, grouping_driver_age, grouping_road, finalisasi_dataset
-from app.utils.klasifikasi_kecelakaan_lalu_lintas import preprocessing_klasifikasi, prediksi_laka_lantas, visualisasi_surrogate_tree
-from app.utils.word_classification import BertForWordClassification
-
 from flask import Flask, render_template, request, jsonify, send_file
 import pandas as pd
 import numpy as np
-from transformers import BertConfig, BertTokenizer
 import traceback
 from datetime import datetime
 import os
@@ -25,6 +14,10 @@ import matplotlib
 matplotlib.use('Agg') # Penting untuk backend matplotlib tanpa GUI
 import matplotlib.pyplot as plt
 import requests
+
+import gdown
+from functools import lru_cache
+import time
 
 app = Flask(
     __name__,
@@ -61,6 +54,16 @@ def download_classification_table():
     
     return send_file(file_path, as_attachment=True)
 
+@lru_cache(maxsize=32)
+def load_csv_from_drive(file_id, version=None):
+    """Mengunduh dan cache CSV dari Google Drive berdasarkan file ID."""
+    url = f'https://drive.google.com/uc?export=download&id={file_id}'
+    response = requests.get(url)
+    if response.status_code == 200:
+        return pd.read_csv(io.StringIO(response.text), encoding='utf-8-sig')
+    else:
+        raise Exception(f"Gagal mengunduh file ID {file_id}")
+
 @app.route('/dashboard')
 def dashboard_page():
     # Ambil parameter filter dari query string
@@ -69,10 +72,48 @@ def dashboard_page():
     lokasi = request.args.get('lokasi')
     periode_laka = request.args.get('periode', 'bulan')
 
-
+    # ---------------------------- MENDEFINISIKAN DATAFRAME ----------------------------------------
+    # VEHICLE
+    file_id_df_vehicle = '1wsnWidNN1zc5aRCVDOGJNUPkcks-a4IF'
+    df_vehicle = load_csv_from_drive(file_id_df_vehicle, version=int(time.time() // 3600))
+    
+    # MERK
+    file_id_df_merk = '1rLttq-1jxl70tjXK7fFGW-IxLpvjThfK'
+    df_merk = load_csv_from_drive(file_id_df_merk, version=int(time.time() // 3600))
+    
+    # DAY
+    file_id_df_day = '1wg8RuosS-1hyrGMhd9wpYCQFlwoQDeXU'
+    df_day = load_csv_from_drive(file_id_df_day, version=int(time.time() // 3600))
+    
+    # AGE
+    file_id_df_age = '1X7iQC5CtFqRD6bp3c3UtSmRpKz-4EAz0'
+    df_age = load_csv_from_drive(file_id_df_age, version=int(time.time() // 3600))
+    
+    # ROAD
+    file_id_df_road = '1wFK65mgY9kXz-65nPJuuwRQzWkaGsM7q'
+    df_road = load_csv_from_drive(file_id_df_road, version=int(time.time() // 3600))
+    
+    # TIME
+    file_id_df_time = '1GSeqDKnr_OsQ8lwNH-nPRVR7rhzSwFP1'
+    df_time = load_csv_from_drive(file_id_df_time, version=int(time.time() // 3600))
+    
+    # CAUSE
+    file_id_df_cause = '1hHlfpSMKeR-Huk-cq36iVhnfgUa7Tdf9'
+    df_cause = load_csv_from_drive(file_id_df_cause, version=int(time.time() // 3600))
+    
+    # LOC
+    file_id_df_loc = '1FjXq6DSTmuxF_HWNpcLDuDB15SY8-5z0'
+    df_loc = load_csv_from_drive(file_id_df_loc, version=int(time.time() // 3600))
+    
+    # INJURY
+    file_id_df_injury = '1d4Zu1tT5dmZ_BtaF8kqliuTM1a7PUxCU'
+    df_injury = load_csv_from_drive(file_id_df_injury, version=int(time.time() // 3600))
+    
+    # DEATH
+    file_id_df_death = '15_d8G52Nse5-h1fCcvILJG5fvlReIIok'
+    df_death = load_csv_from_drive(file_id_df_death, version=int(time.time() // 3600))
+    
     # --------------------------------- PEMROSESEN ENTITAS KENDARAAN ---------------------------------
-    # Entitas Jenis Kendaraan 
-    df_vehicle = pd.read_csv('data/tabel_entitas_vehicle.csv')
     df_vehicle['DATE_STANDARDIZED'] = pd.to_datetime(df_vehicle['DATE_STANDARDIZED'], errors='coerce')
     df_vehicle = df_vehicle[df_vehicle['VEHICLE'] != 'Tidak diketahui']
 
@@ -94,8 +135,6 @@ def dashboard_page():
     data_vehicle = grouped_vehicle['Jumlah'].tolist()
 
     # --------------------------------- PEMROSESEN ENTITAS MERK KENDARAAN ---------------------------------
-    # Entitas Jenis Kendaraan 
-    df_merk = pd.read_csv('data/tabel_entitas_merk.csv')
     df_merk['DATE_STANDARDIZED'] = pd.to_datetime(df_merk['DATE_STANDARDIZED'], errors='coerce')
     df_merk = df_merk[df_merk['MERK'] != 'Tidak diketahui']
 
@@ -123,8 +162,6 @@ def dashboard_page():
     data_merk = grouped_merk['Jumlah'].tolist()
 
     # ---------------------------------- PEMROSESEN ENTITAS HARI KEJADIAN ---------------------------------
-    # Entitas Hari Kejadian
-    df_day = pd.read_csv('data/tabel_entitas_day.csv')
     df_day['DATE_STANDARDIZED'] = pd.to_datetime(df_day['DATE_STANDARDIZED'], errors='coerce')
 
     # Standarisasi kolom lokasi
@@ -147,8 +184,6 @@ def dashboard_page():
     data_day = grouped_day['Jumlah'].tolist()
 
     # --------------------------------- PEMROSESEN ENTITAS UMUR ---------------------------------
-    # Entitas Umur
-    df_age = pd.read_csv('data/tabel_entitas_age.csv')
     df_age['DATE_STANDARDIZED'] = pd.to_datetime(df_age['DATE_STANDARDIZED'], errors='coerce')
     df_age = df_age[df_age['AGE_CATEGORY'] != 'Tidak diketahui']
 
@@ -170,8 +205,6 @@ def dashboard_page():
     data_age = grouped_age['Jumlah'].tolist()
 
     # --------------------------------- PEMROSESEN ENTITAS ROAD ---------------------------------
-    # Entitas Road
-    df_road = pd.read_csv('data/tabel_entitas_road.csv')
     df_road['DATE_STANDARDIZED'] = pd.to_datetime(df_road['DATE_STANDARDIZED'], errors='coerce')
     df_road = df_road[df_road['ROAD_CATEGORY'] != 'Tidak diketahui']
 
@@ -193,8 +226,6 @@ def dashboard_page():
     data_road = grouped_road['Jumlah'].tolist()
 
     # --------------------------------- PEMROSESEN ENTITAS TIME ---------------------------------
-    # Entitas Time
-    df_time = pd.read_csv('data/tabel_entitas_time.csv')
     df_time['DATE_STANDARDIZED'] = pd.to_datetime(df_time['DATE_STANDARDIZED'], errors='coerce')
     df_time = df_time[df_time['TIME_CATEGORY'] != 'Tidak diketahui']
 
@@ -216,8 +247,6 @@ def dashboard_page():
     data_time = grouped_time['Jumlah'].tolist()
 
     # --------------------------------- PEMROSESEN ENTITAS CAUSE ---------------------------------
-    # Entitas Cause
-    df_cause = pd.read_csv('data/tabel_entitas_cause.csv')
     df_cause['DATE_STANDARDIZED'] = pd.to_datetime(df_cause['DATE_STANDARDIZED'], errors='coerce')
     df_cause = df_cause[df_cause['CAUSE_CATEGORY'] != 'Lainnya']
 
@@ -248,7 +277,6 @@ def dashboard_page():
         return lokasi
 
     # === CSV lokasi untuk peta ===
-    df_loc = pd.read_csv('data/tabel_entitas_loc.csv')
     df_loc['DATE_STANDARDIZED'] = pd.to_datetime(df_loc['DATE_STANDARDIZED'], errors='coerce')
     df_loc['LOC'] = df_loc['LOC'].astype(str).apply(normalize_lokasi)
 
@@ -283,8 +311,6 @@ def dashboard_page():
         feature['properties']['jumlah'] = jumlah
     
     # ---------------------------------------- PEMROSESEN ENTITAS INJURY ---------------------------------
-    df_injury = pd.read_csv('data/tabel_entitas_injury.csv')
-
     # Parsing tanggal
     df_injury['DATE_STANDARDIZED'] = pd.to_datetime(df_injury['DATE_STANDARDIZED'], errors='coerce')
     df_injury = df_injury.dropna(subset=['DATE_STANDARDIZED'])
@@ -315,8 +341,6 @@ def dashboard_page():
     jumlah_luka = counts_injury['jumlah'].sum() if not counts_injury.empty else 0
 
     # ---------------------------------------- PEMROSESEN ENTITAS DEATH ---------------------------------
-    df_death = pd.read_csv('data/tabel_entitas_death.csv')
-
     # Parsing tanggal
     df_death['DATE_STANDARDIZED'] = pd.to_datetime(df_death['DATE_STANDARDIZED'], errors='coerce')
     df_death = df_death.dropna(subset=['DATE_STANDARDIZED'])
@@ -396,29 +420,36 @@ def get_chart_date():
     end_date = request.args.get('end_date')
     lokasi = request.args.get('lokasi')
 
-    df_date = pd.read_csv('data/tabel_entitas_loc.csv')
-    df_date['DATE_STANDARDIZED'] = pd.to_datetime(df_date['DATE_STANDARDIZED'], errors='coerce')
-    df_date = df_date.dropna(subset=['DATE_STANDARDIZED'])
-    df_date['month_year'] = df_date['DATE_STANDARDIZED'].dt.to_period('M').astype(str)
-    df_date['year'] = df_date['DATE_STANDARDIZED'].dt.year
-    df_date['LOC'] = df_date['LOC'].astype(str).str.strip().str.lower()
-
-    df_filtered = df_date.copy()
+    # df_date = pd.read_csv('data/tabel_entitas_loc.csv')
+    # file_id_df_date = '1lLyT7xo0THBnvfEl8MAH663Pnzu8hDZE'  # Ganti dengan file ID kamu
+    # url_df_date = f'https://drive.google.com/uc?export=download&id={file_id_df_date}'
+    # response_df_date = requests.get(url_df_date)
+    # df_date = pd.read_csv(io.StringIO(response_df_date.text), encoding='utf-8-sig')
+    file_id_df_loc = '1FjXq6DSTmuxF_HWNpcLDuDB15SY8-5z0'
+    df_loc = load_csv_from_drive(file_id_df_loc, version=int(time.time() // 3600))
+    
+    df_loc['DATE_STANDARDIZED'] = pd.to_datetime(df_loc['DATE_STANDARDIZED'], errors='coerce')
+    df_loc = df_loc.dropna(subset=['DATE_STANDARDIZED'])
+    df_loc['month_year'] = df_loc['DATE_STANDARDIZED'].dt.to_period('M').astype(str)
+    df_loc['year'] = df_loc['DATE_STANDARDIZED'].dt.year
+    df_loc['LOC'] = df_loc['LOC'].astype(str).str.strip().str.lower()
+   
+    df_filtered_loc = df_loc.copy()
     if start_date:
-        df_filtered = df_filtered[df_filtered['DATE_STANDARDIZED'] >= start_date]
+        df_filtered_loc = df_filtered_loc[df_filtered_loc['DATE_STANDARDIZED'] >= start_date]
     if end_date:
-        df_filtered = df_filtered[df_filtered['DATE_STANDARDIZED'] <= end_date]
+        df_filtered_loc = df_filtered_loc[df_filtered_loc['DATE_STANDARDIZED'] <= end_date]
     if lokasi and lokasi != 'semua':
-        df_filtered = df_filtered[df_filtered['LOC'] == lokasi]
+        df_filtered_loc = df_filtered_loc[df_filtered_loc['LOC'] == lokasi]
 
     if periode == 'tahun':
-        counts = df_filtered.groupby('year').size().reset_index(name='jumlah')
-        labels_date = counts['year'].astype(str).tolist()
+        counts_loc = df_filtered_loc.groupby('year').size().reset_index(name='jumlah')
+        labels_date = counts_loc['year'].astype(str).tolist()
     else:
-        counts = df_filtered.groupby('month_year').size().reset_index(name='jumlah')
-        labels_date = counts['month_year'].tolist()
+        counts_loc = df_filtered_loc.groupby('month_year').size().reset_index(name='jumlah')
+        labels_date = counts_loc['month_year'].tolist()
 
-    data_date = counts['jumlah'].tolist()
+    data_date = counts_loc['jumlah'].tolist()
 
     return jsonify({'labels_date': labels_date, 'data_date': data_date})
 
@@ -429,7 +460,13 @@ def get_chart_injury():
     end_date = request.args.get('end_date')
     lokasi = request.args.get('lokasi')
 
-    df_injury = pd.read_csv('data/tabel_entitas_injury.csv')
+    # df_injury = pd.read_csv('data/tabel_entitas_injury.csv')
+    # file_id_df_injury = '1CPoPNFhkNQgihWhzp2CZOtpKsonKQEV7'  # Ganti dengan file ID kamu
+    # url_df_injury = f'https://drive.google.com/uc?export=download&id={file_id_df_injury}'
+    # response_df_injury = requests.get(url_df_injury)
+    # df_injury = pd.read_csv(io.StringIO(response_df_injury.text), encoding='utf-8-sig')
+    file_id_df_injury = '1d4Zu1tT5dmZ_BtaF8kqliuTM1a7PUxCU'
+    df_injury = load_csv_from_drive(file_id_df_injury, version=int(time.time() // 3600))
 
     # Parsing tanggal
     df_injury['DATE_STANDARDIZED'] = pd.to_datetime(df_injury['DATE_STANDARDIZED'], errors='coerce')
@@ -477,7 +514,14 @@ def get_chart_death():
     end_date = request.args.get('end_date')
     lokasi = request.args.get('lokasi')
 
-    df_death = pd.read_csv('data/tabel_entitas_death.csv')
+    # df_death = pd.read_csv('data/tabel_entitas_death.csv')
+    # file_id_df_death = '1tvelEKu3mS2LV7YFOzxqv7S0-by1QB0l'  # Ganti dengan file ID kamu
+    # url_df_death = f'https://drive.google.com/uc?export=download&id={file_id_df_death}'
+    # response_df_death = requests.get(url_df_death)
+    # df_death = pd.read_csv(io.StringIO(response_df_death.text), encoding='utf-8-sig')
+
+    file_id_df_death = '15_d8G52Nse5-h1fCcvILJG5fvlReIIok' 
+    df_death = load_csv_from_drive(file_id_df_death, version=int(time.time() // 3600))
 
     # Parsing tanggal
     df_death['DATE_STANDARDIZED'] = pd.to_datetime(df_death['DATE_STANDARDIZED'], errors='coerce')
@@ -525,7 +569,13 @@ def generate_wordcloud_cause_route(): # Ubah nama fungsi agar unik
     end_date = pd.to_datetime(request.args.get('end_date')) if request.args.get('end_date') else None
     lokasi = request.args.get('lokasi').strip().lower() if request.args.get('lokasi') else None
 
-    df_cause = pd.read_csv('data/tabel_entitas_cause.csv')
+    # df_cause = pd.read_csv('data/tabel_entitas_cause.csv')
+    # file_id_df_cause = '1qAxMIeLcH9zL70JShSsvHY_pBOf3eQpQ'  # Ganti dengan file ID kamu
+    # url_df_cause = f'https://drive.google.com/uc?export=download&id={file_id_df_cause}'
+    # response_df_cause = requests.get(url_df_cause)
+    # df_cause = pd.read_csv(io.StringIO(response_df_cause.text), encoding='utf-8-sig')
+    file_id_df_cause = '1hHlfpSMKeR-Huk-cq36iVhnfgUa7Tdf9'
+    df_cause = load_csv_from_drive(file_id_df_cause, version=int(time.time() // 3600))
     df_cause['DATE_STANDARDIZED'] = pd.to_datetime(df_cause['DATE_STANDARDIZED'], errors='coerce')
     # Jangan filter 'Lainnya' di sini jika ingin tetap ada kemungkinan muncul di wordcloud
     df_cause = df_cause[df_cause['CAUSE_CATEGORY'] != 'Lainnya'] 
@@ -591,24 +641,20 @@ def generate_wordcloud_cause_route(): # Ubah nama fungsi agar unik
     img_base64 = base64.b64encode(img_buffer.getvalue()).decode('utf-8')
     return jsonify({'wordcloud_image': img_base64, 'message': text_for_wordcloud if text_for_wordcloud == "Tidak ada data tersedia" else None})
 
-# @app.route('/start-scraping', methods=['POST'])
-# def start_scraping():
-#     query = 'kecelakaan'
-#     fromdate = '01/01/2025'
-#     todate = '01/01/2025'
-#     jumlah = detikcom_scraping(query, fromdate, todate)
-#     return jsonify({"jumlah": jumlah})
 
 @app.route('/load-scraping-data', methods=['GET'])
 def load_scraping_data():
     try:
-        df_result = pd.read_csv('data/hasil_prediksi_scraping.csv', encoding='utf-8-sig')
+        # df_result = pd.read_csv('data/hasil_prediksi_scraping.csv', encoding='utf-8-sig')
 
         # file_id = '1zWMM271sKPLeawwJ_uM_rKIVP_Di0pZS'  # Ganti dengan file ID kamu
         # url = f'https://drive.google.com/uc?export=download&id={file_id}'
 
         # response = requests.get(url)
         # df_result = pd.read_csv(io.StringIO(response.text), encoding='utf-8-sig')
+
+        file_id = '1p_9KEOWbQjtYj78RwTm7MN7uwoOR3cFH'
+        df_result = load_csv_from_drive(file_id, version=int(time.time() // 3600))
 
         # Ambil tanggal terbaru
         tanggal_terbaru = df_result['news_date'].max()
@@ -621,46 +667,34 @@ def load_scraping_data():
     except Exception as e:
         return jsonify({"error": str(e)})
     
-@app.route('/filter-berita-terbaru', methods=['GET'])
-def filter_berita_terbaru():
-    try:
-        df_filtered = update_relevant_news_and_filter()
-        # 3. Simpan hasil prediksi ke file baru
-        df_filtered.to_csv('data/berita_relevan_unik.csv', index=False, encoding='utf-8-sig')
-
-        data = df_filtered.to_dict(orient='records')
-        return jsonify(data)
-    except Exception as e:
-        return jsonify({"error": str(e)})
     
 @app.route('/load-combine-news', methods=['GET'])
 def load_combine_news():
     try:
         # ==================================== df_news =======================================================
-        df_news = pd.read_csv('data/dataset_berita_lengkap.csv', encoding='utf-8-sig')
+        # df_news = pd.read_csv('data/dataset_berita_lengkap.csv', encoding='utf-8-sig')
         # file_id_df_news = '1HnI-nKfqtObiVQE7L7lrKNo9UQu08R6y'  # Ganti dengan file ID kamu
         # url_df_news = f'https://drive.google.com/uc?export=download&id={file_id_df_news}'
         # response_df_news = requests.get(url_df_news)
         # df_news = pd.read_csv(io.StringIO(response_df_news.text), encoding='utf-8-sig')
 
+        file_id_df_news = '1HnI-nKfqtObiVQE7L7lrKNo9UQu08R6y' 
+        df_news = load_csv_from_drive(file_id_df_news, version=int(time.time() // 3600))
+
         # ================================= df_news_new =========================================
-        df_news_new = pd.read_csv('data/berita_relevan_unik.csv', encoding='utf-8-sig')
+        # df_news_new = pd.read_csv('data/berita_relevan_unik.csv', encoding='utf-8-sig')
         # file_id_df_news_new = '1UlfTsDrnFe5M7WLzGCOHUkP7tk-2HsYx'  # Ganti dengan file ID kamu
         # url_df_news_new = f'https://drive.google.com/uc?export=download&id={file_id_df_news_new}'
         # response_df_news_new = requests.get(url_df_news_new)
         # df_news_new = pd.read_csv(io.StringIO(response_df_news_new.text), encoding='utf-8-sig')
+        
+        file_id_df_news_new = '1mL1Va96NN6KoL_utz3rfzh8dAqyEj_jo'
+        df_news_new = load_csv_from_drive(file_id_df_news_new)
+        
         df_news_new = df_news_new[['title','link','news_date','content','cleaned_content','cleaned_title','news_id']]
 
         df_news_combined = pd.concat([df_news, df_news_new], ignore_index=True)
         df_news_combined = df_news_combined.drop_duplicates(subset=['news_id'], keep='first')
-        df_news_combined.to_csv('data/dataset_berita_lengkap_terbaru.csv', index=False, encoding='utf-8-sig')
-
-        # file_id_df_news_combined = '1qye8dVYe6e5e7xu1xLj2YGrmsZKHOe7a'  # Ganti dengan file ID kamu
-        # url_df_news_combined = f'https://drive.google.com/uc?export=download&id={file_id_df_news_combined}'
-        # response_df_news_combined = requests.get(url_df_news_combined)
-        # df_news_combined = pd.read_csv(io.StringIO(response_df_news_combined.text), encoding='utf-8-sig')
-        df_news_combined = df_news_combined.replace({np.nan: None})
-        # data = df_news_combined.to_dict(orient='records')
         data = df_news_combined.fillna('').to_dict(orient='records')
         return jsonify(data)
     except Exception as e:
@@ -669,15 +703,19 @@ def load_combine_news():
 @app.route('/load-extraction-news', methods=['GET'])
 def load_extraction_news():
     try:
-        if os.path.exists('data/dataset_hasil_ekstraksi_berita_terbaru.csv'):
-            df_extraction = pd.read_csv('data/dataset_hasil_ekstraksi_berita_terbaru.csv', encoding='utf-8-sig')
-        else:
-            df_extraction = pd.read_csv('data/dataset_hasil_ekstraksi_berita.csv', encoding='utf-8-sig')
+        # if os.path.exists('data/dataset_hasil_ekstraksi_berita_terbaru.csv'):
+        #     df_extraction = pd.read_csv('data/dataset_hasil_ekstraksi_berita_terbaru.csv', encoding='utf-8-sig')
+        # else:
+        #     df_extraction = pd.read_csv('data/dataset_hasil_ekstraksi_berita.csv', encoding='utf-8-sig')
         
         # file_id_df_extraction = '1ycl0Sy5hAALWiaNCa9XI3a9ddMdPWAyU'  # Ganti dengan file ID kamu
         # url_df_extraction = f'https://drive.google.com/uc?export=download&id={file_id_df_extraction}'
         # response_df_extraction = requests.get(url_df_extraction)
         # df_extraction = pd.read_csv(io.StringIO(response_df_extraction.text), encoding='utf-8-sig')
+        
+        file_id_df_extraction = '1j6eul3EJevsXGhx2tJhrrb5KuGwhdnJL'
+        df_extraction = load_csv_from_drive( file_id_df_extraction, version=int(time.time() // 3600))
+        
         df_extraction = df_extraction.replace({np.nan: None})
 
         data = df_extraction.to_dict(orient='records')
@@ -688,15 +726,19 @@ def load_extraction_news():
 @app.route('/load-classification-data', methods=['GET'])
 def load_classification_data():
     try:
-        if os.path.exists('data/dataset_klasifikasi_lengkap_terbaru.csv'):
-            df_classification = pd.read_csv('data/dataset_klasifikasi_lengkap_terbaru.csv', encoding='utf-8-sig')
-        else:
-            df_classification = pd.read_csv('data/dataset_klasifikasi_lengkap.csv', encoding='utf-8-sig')
+        # if os.path.exists('data/dataset_klasifikasi_lengkap_terbaru.csv'):
+        #     df_classification = pd.read_csv('data/dataset_klasifikasi_lengkap_terbaru.csv', encoding='utf-8-sig')
+        # else:
+        #     df_classification = pd.read_csv('data/dataset_klasifikasi_lengkap.csv', encoding='utf-8-sig')
 
-        # file_id_df_classification = '1-nqMYdB-SDe-8ywQwx9RQpVAXbwhg_FF'  # Ganti dengan file ID kamu
+        # file_id_df_classification = '1GKsX4CO3EasjcYQjvRJqOBORFWx-PFZ4'  # Ganti dengan file ID kamu
         # url_df_classification = f'https://drive.google.com/uc?export=download&id={file_id_df_classification}'
         # response_df_classification = requests.get(url_df_classification)
         # df_classification = pd.read_csv(io.StringIO(response_df_classification.text), encoding='utf-8-sig')
+
+        file_id_df_classification = '1yZZttxDJmR_sa23yfZLTj1fP6jdOUS9e'
+        df_classification = load_csv_from_drive(file_id_df_classification, version=int(time.time() // 3600))
+        
         df_classification = df_classification.replace({np.nan: None})
 
         data = df_classification.to_dict(orient='records')
@@ -704,196 +746,7 @@ def load_classification_data():
     except Exception as e:
         return jsonify({"error": str(e)})
 
-# @app.route('/predict-ner', methods=['GET'])
-# def predict_ner():
-#     try:
-#         i2w = {
-#             0: 'B-LOC', 1: 'I-LOC',
-#             2: 'B-DAY', 3: 'I-DAY',
-#             4: 'B-DATE', 5: 'I-DATE',
-#             6: 'B-TIME', 7: 'I-TIME',
-#             8: 'B-VEHICLE', 9: 'I-VEHICLE',
-#             10: 'B-MERK', 11: 'I-MERK',
-#             12: 'B-CAUSE', 13: 'I-CAUSE',
-#             14: 'B-ROAD', 15: 'I-ROAD',
-#             16: 'B-ORG', 17: 'I-ORG',
-#             18: 'B-VICTIM_AGE', 19: 'I-VICTIM_AGE',
-#             20: 'B-DRIVER_AGE', 21: 'I-DRIVER_AGE',
-#             22: 'B-INJURY', 23: 'I-INJURY',
-#             24: 'B-DEATH', 25: 'I-DEATH',
-#             26: 'O'
-#         }
-#         # Load Model
-#         save_path = "app/model/indobert_large"
-#         tokenizer = BertTokenizer.from_pretrained(save_path)
-#         model = BertForWordClassification.from_pretrained(save_path)
-#         model.eval()
 
-#         df_unik = pd.read_csv('data/berita_relevan_unik.csv', encoding='utf-8-sig')
-       
-#         start_counter = df_unik.get('start_counter', 21606)
-#         df_ner = prediksi_ner(df_unik, start_counter=start_counter, model=model, tokenizer=tokenizer, i2w=i2w)
-#         df_ner.to_csv('data/hasil_prediksi_ner.csv', index=False, encoding='utf-8-sig')
-
-#         df_mapping = extract_all_entities(df_ner)
-#         df_process_date = process_dates(df_mapping, df_unik)
-#         df_normalize_location = normalize_location(df_process_date)
-#         df_normalize_location.to_csv('data/hasil_ekstraksi_berita.csv', index=False, encoding='utf-8-sig')
-
-#         # Gabung Dataframe
-#         df_all_extraction = pd.read_csv('data/dataset_hasil_ekstraksi_berita.csv', encoding='utf-8-sig')
-#         df_all_extraction = pd.concat([df_all_extraction, df_normalize_location], ignore_index=True)
-#         df_all_extraction = df_all_extraction.drop_duplicates(subset=['news_id'], keep='first')
-#         df_all_extraction.to_csv('data/dataset_hasil_ekstraksi_berita_terbaru.csv', index=False, encoding='utf-8-sig')
-#         # Ubah hasil jadi list dict JSON-able
-#         result = df_all_extraction.to_dict(orient='records')
-#         return jsonify({'result': result})
-#     except Exception as e:
-#         return jsonify({'error': str(e)}), 500
-
-@app.route('/full-pipeline', methods=['POST'])
-def full_pipeline():
-    try:
-        # 1. Scraping
-        query = 'kecelakaan'
-        fromdate = '01/01/2025'
-        todate = '22/07/2025'
-        jumlah = detikcom_scraping(query, fromdate, todate)
-
-        # 2. Preprocessing dan prediksi relevansi
-        df_preprocess = load_and_clean_data('data/hasil_scraping.csv')
-        df_preprocess.to_csv('data/hasil_scraping_preprocessing.csv', index=False, encoding='utf-8-sig')
-
-        df_result = predict_sentiment_from_file('data/hasil_scraping_preprocessing.csv')
-        df_result.to_csv('data/hasil_prediksi_scraping.csv', index=False, encoding='utf-8-sig')
-
-        # 3. Filter berita terbaru
-        df_filtered = update_relevant_news_and_filter()
-        df_filtered.to_csv('data/berita_relevan_unik.csv', index=False, encoding='utf-8-sig')
-
-        # 4. Gabungkan dengan dataset lama
-        df_news = pd.read_csv('data/dataset_berita_lengkap.csv', encoding='utf-8-sig')
-        df_news_new = df_filtered[['title', 'link', 'news_date', 'content', 'cleaned_content', 'cleaned_title', 'news_id']]
-        df_news_combined = pd.concat([df_news, df_news_new], ignore_index=True)
-        df_news_combined = df_news_combined.drop_duplicates(subset=['news_id'], keep='first')
-        df_news_combined.to_csv('data/dataset_berita_lengkap_terbaru.csv', index=False, encoding='utf-8-sig')
-
-        # 5. Prediksi NER
-        i2w = {
-            0: 'B-LOC', 1: 'I-LOC', 2: 'B-DAY', 3: 'I-DAY', 4: 'B-DATE', 5: 'I-DATE',
-            6: 'B-TIME', 7: 'I-TIME', 8: 'B-VEHICLE', 9: 'I-VEHICLE', 10: 'B-MERK', 11: 'I-MERK',
-            12: 'B-CAUSE', 13: 'I-CAUSE', 14: 'B-ROAD', 15: 'I-ROAD', 16: 'B-ORG', 17: 'I-ORG',
-            18: 'B-VICTIM_AGE', 19: 'I-VICTIM_AGE', 20: 'B-DRIVER_AGE', 21: 'I-DRIVER_AGE',
-            22: 'B-INJURY', 23: 'I-INJURY', 24: 'B-DEATH', 25: 'I-DEATH', 26: 'O'
-        }
-
-        save_path = "app/model/indobert_large"
-        tokenizer = BertTokenizer.from_pretrained(save_path)
-        model = BertForWordClassification.from_pretrained(save_path)
-        model.eval()
-
-        # Load berita terbaru yang ingin diproses
-        df_unik = pd.read_csv('data/berita_relevan_unik.csv', encoding='utf-8-sig')
-
-        # Load base: jika file terbaru belum ada, pakai dataset awal
-        if os.path.exists('data/dataset_hasil_ekstraksi_berita_terbaru.csv'):
-            df_base = pd.read_csv('data/dataset_hasil_ekstraksi_berita_terbaru.csv', encoding='utf-8-sig')
-        else:
-            df_base = pd.read_csv('data/dataset_hasil_ekstraksi_berita.csv', encoding='utf-8-sig')
-
-        # Cari berita yang belum pernah diproses
-        existing_ids = set(df_base['news_id'])
-        df_unik_new = df_unik[~df_unik['news_id'].isin(existing_ids)]
-
-        # Prediksi jika ada berita baru
-        if not df_unik_new.empty:
-            start_counter = df_unik.get('start_counter', 21606)
-            df_ner = prediksi_ner(df_unik_new, start_counter=start_counter, model=model, tokenizer=tokenizer, i2w=i2w)
-            df_ner.to_csv('data/hasil_prediksi_ner.csv', index=False, encoding='utf-8-sig')
-
-            df_mapping = extract_all_entities(df_ner)
-            df_process_date = process_dates(df_mapping, df_unik_new)
-            df_new_extraction = normalize_location(df_process_date)
-            df_new_extraction.to_csv('data/hasil_ekstraksi_berita_baru.csv', index=False, encoding='utf-8-sig')
-
-            df_classification_new = df_new_extraction.copy()
-            df_classification_new = df_classification_new[["DATE_STANDARDIZED","DAY","TIME","VEHICLE","ROAD","CAUSE","DRIVER_AGE","DEATH"]]
-            df_classification_new = grouping_day(df_classification_new)
-            df_classification_new = df_classification_new[["DAY","TIME","VEHICLE","ROAD","CAUSE","DRIVER_AGE","DEATH"]]
-            df_classification_new = grouping_time(df_classification_new)
-            df_classification_new = grouping_vehicle(df_classification_new)
-            df_classification_new = grouping_road(df_classification_new)
-            df_classification_new = grouping_cause(df_classification_new)
-            df_classification_new = grouping_driver_age(df_classification_new)
-            df_classification_new = grouping_death(df_classification_new)
-            df_classification_new = finalisasi_dataset(df_classification_new)
-            df_classification_new.to_csv('data/data_baru_klasifikasi.csv', index=False, encoding='utf-8-sig')
-
-            if os.path.exists('data/dataset_klasifikasi_lengkap_terbaru.csv'):
-                df_classification_lengkap = pd.concat([pd.read_csv('data/dataset_klasifikasi_lengkap_terbaru.csv', encoding='utf-8-sig'), df_classification_new], ignore_index=True)
-            else:
-                df_classification_lengkap = pd.concat([pd.read_csv('data/dataset_klasifikasi_lengkap.csv', encoding='utf-8-sig'), df_classification_new], ignore_index=True)
-
-            df_classification_lengkap.to_csv('data/dataset_klasifikasi_lengkap_terbaru.csv', index=False, encoding='utf-8-sig')
-            # Gabungkan hasil baru dengan data base
-            df_combined = pd.concat([df_base, df_new_extraction], ignore_index=True)
-        else:
-            df_combined = df_base.copy()
-
-        # Bersihkan berita tahun sekarang yang tidak ada lagi di df_unik
-        current_year = datetime.now().year
-        df_combined['DATE_STANDARDIZED'] = pd.to_datetime(df_combined['DATE_STANDARDIZED'], errors='coerce')
-        df_final = df_combined[
-            ~((df_combined['DATE_STANDARDIZED'].dt.year == current_year) &
-            (~df_combined['news_id'].isin(df_unik['news_id'])))
-        ]
-
-        # Simpan hasil akhir (overwrite file terbaru)
-        df_final.to_csv('data/dataset_hasil_ekstraksi_berita_terbaru.csv', index=False, encoding='utf-8-sig')
-
-        #df_final = pd.read_csv('data/dataset_hasil_ekstraksi_berita.csv', encoding='utf-8-sig')
-
-        tabel_day = entitas_day(df_final)
-        tabel_day.to_csv('data/tabel_entitas_day.csv', index=False, encoding='utf-8-sig')
-
-        tabel_time = entitas_time(df_final)
-        tabel_time.to_csv('data/tabel_entitas_time.csv', index=False, encoding='utf-8-sig')
-
-        tabel_loc = entitas_loc(df_final)
-        tabel_loc.to_csv('data/tabel_entitas_loc.csv', index=False, encoding='utf-8-sig')
-
-        tabel_vehicle = entitas_vehicle(df_final)
-        tabel_vehicle.to_csv('data/tabel_entitas_vehicle.csv', index=False, encoding='utf-8-sig')
-
-        tabel_merk = entitas_merk(df_final)
-        tabel_merk.to_csv('data/tabel_entitas_merk.csv', index=False, encoding='utf-8-sig')
-
-        tabel_road = entitas_road(df_final)
-        tabel_road.to_csv('data/tabel_entitas_road.csv', index=False, encoding='utf-8-sig')
-
-        tabel_cause = entitas_cause(df_final)
-        tabel_cause.to_csv('data/tabel_entitas_cause.csv', index=False, encoding='utf-8-sig')
-
-        tabel_age = entitas_age(df_final)
-        tabel_age.to_csv('data/tabel_entitas_age.csv', index=False, encoding='utf-8-sig')
-
-        tabel_injury = entitas_injury(df_final)
-        tabel_injury.to_csv('data/tabel_entitas_injury.csv', index=False, encoding='utf-8-sig')
-
-        tabel_death = entitas_death(df_final)
-        tabel_death.to_csv('data/tabel_entitas_death.csv', index=False, encoding='utf-8-sig')
-
-        # if os.path.exists('data/dataset_klasifikasi_lengkap_terbaru.csv'):
-        #     prediksi_laka_lantas('data/dataset_klasifikasi_lengkap_terbaru.csv')  
-        # else:
-        #     prediksi_laka_lantas('data/dataset_klasifikasi_lengkap.csv')
-
-        return jsonify({'status': 'success', 'scraped': jumlah})
-    except Exception as e:
-        traceback.print_exc()  # ✅ Ini akan print error lengkap ke terminal
-        return jsonify({'error': str(e)}), 500
-
-
-
-if __name__ == '__main__':
-    app.run(debug=True)
+if __name__ == "__main__":
+    port = int(os.environ.get("PORT", 5000))  # Port default Railway
+    app.run(host="0.0.0.0", port=port, debug=False)
