@@ -54,7 +54,7 @@ document.getElementById("btn-download-classification").addEventListener("click",
             const url = window.URL.createObjectURL(blob);
             const a = document.createElement('a');
             a.href = url;
-            a.download = 'dataset_klasifikasi_lengkap.csv';
+            a.download = 'dataset_klasifikasi_terbaru.csv';
             document.body.appendChild(a);
             a.click();
             a.remove();
